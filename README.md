@@ -1,4 +1,3 @@
-# ghcn-weather-pipeline
 # GHCN Weather Pipeline
 
 A local data pipeline that ingests NOAA's Global Historical Climatology Network (GHCN) daily
