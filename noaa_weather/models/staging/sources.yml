@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: main
+    tables:
+      - name: raw_daily_observations
+      - name: raw_station_metadata
+      - name: raw_station_inventory
+      - name: raw_country_codes

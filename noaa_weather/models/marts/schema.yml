@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: fct_daily_weather
+    description: "Daily weather observations per station, pivoted with one column per element. Quality filtered to exclude any station-date with a failed NOAA quality check."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - station_id
+            - observation_date
+    columns:
+      - name: station_id
+        description: "GHCN station identifier"
+        data_tests:
+          - not_null
+
+      - name: observation_date
+        description: "Calendar date of the observation"
+        data_tests:
+          - not_null
+
+      - name: city
+        description: "Target city this station represents"
+        data_tests:
+          - not_null
+          - accepted_values:
+              name: initial_target_cities
+              config:
+                description: "Targets only the initial five cities. Update the target_stations seed (and this list) if scope expands."
+              values: ['Toronto', 'Montreal', 'Vancouver', 'Calgary', 'Ottawa']
