@@ -5,3 +5,5 @@ target/
 dbt_packages/
 .DS_Store
 noaa_weather/models/example/
+.vscode/
+__pycache__/

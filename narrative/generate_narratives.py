@@ -1,13 +1,18 @@
 import os
+import time
 import duckdb
 import pandas as pd
 from dotenv import load_dotenv
 from google import genai
 
+from guardrail.validator import validate_narrative
+
+
 load_dotenv()
 
 DUCKDB_PATH = "noaa_weather/dev.duckdb"
-MODEL_NAME = "gemini-2.5-flash"
+# MODEL_NAME = "gemini-3.5-flash"
+MODEL_NAME = "gemini-2.5-flash-lite"
 
 NON_ELEMENT_COLUMNS = {
     "station_id", "observation_date", "city", "station_name",
@@ -21,11 +26,18 @@ Q = """
     order by city, observation_date
 """
 
+core_elements = {"TMAX", "TMIN", "TAVG", "PRCP", "SNOW", "SNWD"}
+known_secondary_elements = {
+        "WDFG": "Direction of peak wind gust (degrees)",
+        "WSFG": "Peak gust wind speed (meters per second)",
+        "TAVG": "Average daily temperature (°C)",
+    }
+
 # DuckDB helpers
 def fetch_recent_weather(db_path=DUCKDB_PATH):
     con = duckdb.connect(db_path)
     df = con.execute(Q).df()
-    con.close
+    con.close()
     return df
 
 def load_narratives_to_duckdb(narratives_df, db_path=DUCKDB_PATH):
@@ -53,30 +65,25 @@ def get_element_definitions() -> str:
     return elements_definition
 
 
-# Promt
-def build_prompt(row):
-    core_elements = {"TMAX", "TMIN", "TAVG", "PRCP", "SNOW", "SNWD"}
-    known_secondary_elements = {
-        "WDFG": "Direction of peak wind gust (degrees)",
-        "WSFG": "Peak gust wind speed (meters per second)",
-        "TAVG": "Average daily temperature (°C)",
-    }
- 
+def build_data_text(row):
     lines = []
     unknown_columns = []
- 
+
     for column in row.index:
         if column in NON_ELEMENT_COLUMNS:
             continue
         value = row[column]
         value_text = "not available" if pd.isna(value) else str(value)
         lines.append(f"{column}: {value_text}")
- 
+
         if column not in core_elements and column not in known_secondary_elements:
             unknown_columns.append(column)
- 
-    elements_text = "\n".join(lines)
- 
+
+    return "\n".join(lines), unknown_columns
+
+# Promt
+def build_prompt(row):
+    elements_text, unknown_columns = build_data_text(row)
     secondary_reference = "\n".join(
         f"{code} = {definition}" for code, definition in known_secondary_elements.items()
     )
@@ -123,7 +130,7 @@ def build_prompt(row):
         Date: {row['observation_date']}
         {elements_text}
     """
-    return prompt
+    return prompt, elements_text
 
 
 
@@ -137,6 +144,18 @@ def generate_narrative(client, prompt):
     return response.text
 
 
+# Retry
+def call_with_retry(func, *args, max_retries=3, delay_seconds=5, **kwargs):
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"  Retry {attempt + 1}/{max_retries} after error: {e}")
+                time.sleep(delay_seconds)
+            else:
+                raise
+
 
 # Run pipeline
 def main():
@@ -147,16 +166,22 @@ def main():
  
     results = []
     for _, row in df.iterrows():
-        prompt = build_prompt(row)
-        narrative = generate_narrative(client, prompt)
-        print(f"{row['city']} — {row['observation_date']}: {narrative[:80]}...")
-        results.append({
-            "station_id": row["station_id"],
-            "city": row["city"],
-            "observation_date": row["observation_date"],
-            "narrative": narrative,
-        })
- 
+        try:
+            prompt, elements_text = build_prompt(row)
+            narrative = call_with_retry(generate_narrative, client, prompt)
+            validation_result = call_with_retry(validate_narrative, client, narrative, elements_text)
+            print(f"{row['city']} — {row['observation_date']}: {narrative[:80]}...")
+            results.append({
+                "station_id": row["station_id"],
+                "city": row["city"],
+                "observation_date": row["observation_date"],
+                "narrative": narrative,
+                "is_valid": validation_result.is_valid,
+                "invalid_reason": validation_result.reason,
+            })
+        except Exception as e:
+            print(f"FAILED — {row['city']} {row['observation_date']}: {e}")
+    
     narratives_df = pd.DataFrame(results)
     load_narratives_to_duckdb(narratives_df)
     print(f"\nSaved {len(narratives_df)} narratives to DuckDB table 'narratives'.")
