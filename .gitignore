@@ -1,0 +1,7 @@
+*.pdf
+.env
+venv/
+target/
+dbt_packages/
+.DS_Store
+noaa_weather/models/example/
