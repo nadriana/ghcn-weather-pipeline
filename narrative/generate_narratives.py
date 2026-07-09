@@ -171,6 +171,7 @@ def main():
             narrative = call_with_retry(generate_narrative, client, prompt)
             validation_result = call_with_retry(validate_narrative, client, narrative, elements_text)
             print(f"{row['city']} — {row['observation_date']}: {narrative[:80]}...")
+            
             results.append({
                 "station_id": row["station_id"],
                 "city": row["city"],
@@ -179,6 +180,7 @@ def main():
                 "is_valid": validation_result.is_valid,
                 "invalid_reason": validation_result.reason,
             })
+            
         except Exception as e:
             print(f"FAILED — {row['city']} {row['observation_date']}: {e}")
     

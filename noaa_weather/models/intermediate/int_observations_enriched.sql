@@ -40,7 +40,7 @@ enriched as (
 final as (
     select
         *,
-        quality_flag is not null as failled_quality_check
+        quality_flag is not null as failed_quality_check
     
     from enriched
     
